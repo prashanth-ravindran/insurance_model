@@ -479,12 +479,11 @@ function App() {
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-lockup">
-            <div className="brand-mark"><ShieldAlert size={22} /></div>
-            <div className="brand-copy">
-              <div className="brand-title">Chubb Arabia</div>
-              <div className="brand-subtitle">Underwriting</div>
+          <div className="brand-lockup xtract-brand">
+            <div className="brand-logo-card">
+              <img className="brand-logo" src="/xtract-logo.png" alt="Xtract.io" />
             </div>
+            <div className="brand-subtitle">for Chubb Arabia</div>
           </div>
           <button
             className="sidebar-toggle"
@@ -518,9 +517,11 @@ function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div>
-            <div className="eyebrow">Chubb Arabia Underwriting</div>
-            <h1>{pageTitle}</h1>
+          <div className="topbar-title">
+            <div>
+              <div className="eyebrow">Xtract.io for Chubb Arabia</div>
+              <h1>{pageTitle}</h1>
+            </div>
           </div>
           <div className="topbar-actions">
             {section !== 'unstructured' && currentCase && <span className={`status-pill ${decisionClass(currentCase.status)}`}>{statusLabel(currentCase.status)}</span>}
@@ -860,7 +861,7 @@ function RawRecordPreview({ record }: { record: UnstructuredRecord | null }) {
   return (
     <div className="raw-preview">
       {record.file_extension === '.pdf' && (
-        <iframe title="Raw PDF preview" src={unstructuredRawUrl(record.id)} />
+        <iframe title="Raw PDF preview" src={unstructuredRawUrl(record.id, `${record.updated_at}-${record.raw_text.length}-${record.raw_text.slice(0, 32)}`)} />
       )}
       <pre>{previewText}</pre>
     </div>

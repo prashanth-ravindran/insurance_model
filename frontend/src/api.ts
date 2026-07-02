@@ -69,8 +69,9 @@ export async function reviewUnstructuredRecord(
   return request<UnstructuredReviewResponse>(`/api/unstructured-intake/${id}/review`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
-export function unstructuredRawUrl(id: string): string {
-  return `${API_BASE}/api/unstructured-intake/${id}/raw`;
+export function unstructuredRawUrl(id: string, version?: string): string {
+  const cacheKey = version ? `?v=${encodeURIComponent(version)}` : '';
+  return `${API_BASE}/api/unstructured-intake/${id}/raw${cacheKey}`;
 }
 
 export async function enrichApplication(id: string): Promise<UnderwritingCase> {
