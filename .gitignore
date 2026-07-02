@@ -8,3 +8,10 @@ artifacts/
 data/generated/
 .DS_Store
 
+frontend/node_modules/
+frontend/dist/
+artifacts/underwriting.db
+artifacts/quotes/
+.playwright-cli/
+.env
+.env.local

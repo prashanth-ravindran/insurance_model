@@ -25,7 +25,7 @@ from insurance_model.simulation import SCENARIOS, generate_simulation_bundle, me
 from insurance_model.underwriting import business_rule_descriptions
 
 st.set_page_config(
-    page_title="Saudi P&C Risk Model",
+    page_title="Chubb Arabia Risk Model",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -306,7 +306,7 @@ with st.spinner("Preparing data feeds and training models"):
     reserving_result = cached_reserving(rows, int(seed), scenario_name)
     full_capital = cached_full_capital(rows, int(seed), scenario_name)
 
-st.title("Saudi P&C Portfolio Risk Model")
+st.title("Chubb Arabia Portfolio Risk Model")
 st.caption("Pricing, underwriting, reserving, and proxy RBC analytics for Saudi Arabia P&C portfolios ahead of Jan 1, 2027.")
 
 quote_tab, data_tab, actuarial_tab, diagnostics_tab, reserving_tab, capital_tab, scenarios_tab, rules_tab, config_tab = st.tabs(

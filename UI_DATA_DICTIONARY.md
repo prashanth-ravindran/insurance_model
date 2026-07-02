@@ -1,4 +1,4 @@
-# Saudi P&C Risk Model UI Guide
+# Chubb Arabia Risk Model UI Guide
 
 This guide explains every major data point shown in the web app in plain language. It is written for someone who does not work in insurance.
 
