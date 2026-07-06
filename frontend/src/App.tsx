@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   BadgeCheck,
+  BarChart3,
   BookOpen,
   CheckCircle2,
   ClipboardCheck,
@@ -9,8 +10,10 @@ import {
   Eye,
   FileText,
   Gauge,
+  Database,
   Inbox,
   Layers,
+  LineChart,
   Loader2,
   LockKeyhole,
   PanelLeftClose,
@@ -41,11 +44,13 @@ import {
   reviewUnstructuredRecord,
   underwriteApplication,
   unstructuredRawUrl,
+  getModelSummary,
   uploadUnstructuredFiles
 } from './api';
-import type { Applicant, ApplicationCreate, ConfigPayload, FieldConfidence, PolicyPayload, Role, UnderwritingCase, UnstructuredRecord } from './types';
+import type { Applicant, ApplicationCreate, ConfigPayload, FieldConfidence, ModelSummary, ModelTableRow, PolicyPayload, Role, UnderwritingCase, UnstructuredRecord } from './types';
 
-type Section = 'unstructured' | 'intake' | 'triage' | 'reviews' | 'quote' | 'config';
+type Section = 'flow' | 'unstructured' | 'intake' | 'triage' | 'reviews' | 'quote' | 'model' | 'config';
+type ModelTab = 'underwriting' | 'data' | 'actuarial' | 'diagnostics' | 'reserving' | 'capital' | 'scenarios' | 'rules' | 'proxy';
 
 type BusyAction =
   | 'submit'
@@ -61,20 +66,72 @@ type BusyAction =
   | 'quote'
   | 'bind'
   | 'refresh'
+  | 'model'
   | null;
 
 const navItems: Array<{ id: Section; label: string; icon: typeof FileText }> = [
+  { id: 'flow', label: 'Process Flow', icon: Route },
   { id: 'unstructured', label: 'Unstructured Intake', icon: Inbox },
   { id: 'intake', label: 'Intake', icon: FileText },
   { id: 'triage', label: 'Triage', icon: SearchCheck },
   { id: 'reviews', label: 'Review Queue', icon: UserCheck },
   { id: 'quote', label: 'Quote & Bind', icon: BadgeCheck },
+  { id: 'model', label: 'Model', icon: BarChart3 },
   { id: 'config', label: 'Config', icon: SlidersHorizontal }
 ];
 
 const lobs = ['Motor', 'Property & Fire', 'Engineering & Construction', 'Marine & Cargo', 'Casualty/Liability'];
 const regions = ['Riyadh', 'Jeddah', 'Dammam/Khobar', 'Jubail/Yanbu', 'Makkah/Madinah', 'NEOM/Red Sea', 'Rest of KSA'];
 const ratings = ['AAA', 'AA', 'A', 'BBB', 'BB', 'Unrated'];
+
+const modelTabs: Array<{ id: ModelTab; label: string }> = [
+  { id: 'underwriting', label: 'Underwriting' },
+  { id: 'data', label: 'Data' },
+  { id: 'actuarial', label: 'Actuarial' },
+  { id: 'diagnostics', label: 'Diagnostics' },
+  { id: 'reserving', label: 'Reserving' },
+  { id: 'capital', label: 'Capital' },
+  { id: 'scenarios', label: 'Scenarios' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'proxy', label: 'Proxy Factors' }
+];
+
+type FlowHotspot = {
+  label: string;
+  target?: Section;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+const sectionIds: Section[] = ['flow', 'unstructured', 'intake', 'triage', 'reviews', 'quote', 'model', 'config'];
+
+const processFlowHotspots: FlowHotspot[] = [
+  { label: 'Broker / Agent', target: 'intake', x: 3.1, y: 7.4, w: 13.6, h: 4.6 },
+  { label: 'Customer', target: 'intake', x: 3.1, y: 12.2, w: 13.6, h: 4.6 },
+  { label: 'Sales Team', target: 'intake', x: 3.1, y: 17.3, w: 13.6, h: 4.6 },
+  { label: 'Unstructured source files', target: 'unstructured', x: 3.1, y: 24.2, w: 9.0, h: 16.7 },
+  { label: 'Web / Portal Intake', target: 'intake', x: 3.1, y: 41.1, w: 9.0, h: 4.5 },
+  { label: 'Upload, preview, and extract', target: 'unstructured', x: 13.4, y: 19.0, w: 5.8, h: 24.0 },
+  { label: 'Data Prep Stage', x: 21.0, y: 5.6, w: 26.5, h: 44.0 },
+  { label: 'Data Intelligence and HITL extraction', target: 'unstructured', x: 48.0, y: 5.8, w: 18.7, h: 68.7 },
+  { label: 'Enrichment', target: 'triage', x: 70.2, y: 9.5, w: 26.2, h: 24.5 },
+  { label: 'Underwriting Engine', target: 'triage', x: 70.2, y: 35.1, w: 26.2, h: 14.4 },
+  { label: 'Premium and Rate Calculation', target: 'triage', x: 70.2, y: 49.3, w: 26.2, h: 23.2 },
+  { label: 'Straight-through processing', target: 'triage', x: 13.2, y: 78.2, w: 11.8, h: 5.2 },
+  { label: 'Review Queue', target: 'reviews', x: 13.2, y: 85.1, w: 11.8, h: 5.2 },
+  { label: 'Decline', target: 'triage', x: 13.2, y: 92.1, w: 11.8, h: 5.2 },
+  { label: 'Quotation Automation', target: 'quote', x: 28.0, y: 77.7, w: 45.4, h: 18.8 },
+  { label: 'Bind and Delivery', target: 'quote', x: 76.0, y: 77.7, w: 21.0, h: 18.8 }
+];
+
+const defaultHotspotLayerStyle = { left: '0%', top: '0%', width: '100%', height: '100%' };
+
+function sectionFromHash(hash: string): Section | null {
+  const id = hash.replace(/^#/, '') as Section;
+  return sectionIds.includes(id) ? id : null;
+}
 
 const lobDefaults: Record<string, Partial<PolicyPayload>> = {
   Motor: {
@@ -218,7 +275,7 @@ function decisionClass(status?: string | null): string {
 }
 
 function App() {
-  const [section, setSection] = useState<Section>('unstructured');
+  const [section, setSection] = useState<Section>(() => typeof window === 'undefined' ? 'flow' : sectionFromHash(window.location.hash) ?? 'flow');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [role, setRole] = useState<Role>('agent');
   const [config, setConfig] = useState<ConfigPayload | null>(null);
@@ -239,6 +296,10 @@ function App() {
     phone: '+966500000000'
   });
   const [policy, setPolicy] = useState<PolicyPayload>(defaultPolicy('Motor'));
+  const [modelPolicy, setModelPolicy] = useState<PolicyPayload>(defaultPolicy('Motor'));
+  const [modelSummary, setModelSummary] = useState<ModelSummary | null>(null);
+  const [modelSettings, setModelSettings] = useState({ rows: 2500, seed: 42, scenario: 'Base' });
+  const [modelTab, setModelTab] = useState<ModelTab>('underwriting');
   const [reviewNotes, setReviewNotes] = useState('Risk controls verified and terms adjusted for current appetite.');
   const [premiumDelta, setPremiumDelta] = useState(0.05);
   const [reviewExclusion, setReviewExclusion] = useState('Flood and sandstorm sublimits apply where scheduled.');
@@ -246,9 +307,13 @@ function App() {
   const selectedDecision = currentCase?.latest_decision;
   const selectedRating = currentCase?.latest_rating;
   const selectedQuote = currentCase?.latest_quote;
-  const pageTitle = section === 'unstructured'
-    ? currentUnstructured?.original_filename ?? 'Unstructured intake'
-    : currentCase ? currentCase.applicant.name : 'New application';
+  const pageTitle = section === 'flow'
+    ? 'Underwriting process flow'
+    : section === 'model'
+      ? 'Portfolio risk model'
+      : section === 'unstructured'
+        ? currentUnstructured?.original_filename ?? 'Unstructured intake'
+        : currentCase ? currentCase.applicant.name : 'New application';
 
   const visibleCases = useMemo(() => cases.slice(0, 12), [cases]);
   const visibleUnstructured = useMemo(() => unstructuredRecords.slice(0, 18), [unstructuredRecords]);
@@ -256,6 +321,25 @@ function App() {
   useEffect(() => {
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const next = sectionFromHash(window.location.hash);
+      if (next) setSection(next);
+    };
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (section === 'model' && !modelSummary && busy !== 'model') {
+      void runModelSummary();
+    }
+  }, [section]);
 
   async function bootstrap() {
     setBusy('refresh');
@@ -298,6 +382,14 @@ function App() {
     }
   }
 
+  function navigateToSection(next: Section) {
+    setSection(next);
+    if (typeof window !== 'undefined') {
+      const hash = `#${next}`;
+      if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+    }
+  }
+
   async function runAction(action: BusyAction, fn: () => Promise<UnderwritingCase>) {
     if (!action) return;
     setBusy(action);
@@ -318,6 +410,36 @@ function App() {
 
   function changeLob(lob: string) {
     setPolicy(defaultPolicy(lob));
+  }
+
+  function updateModelPolicy(key: string, value: string | number) {
+    setModelPolicy((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function changeModelLob(lob: string) {
+    setModelPolicy(defaultPolicy(lob));
+  }
+
+  function updateModelSettings(key: 'rows' | 'seed' | 'scenario', value: string | number) {
+    setModelSettings((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function runModelSummary() {
+    setBusy('model');
+    setError(null);
+    try {
+      const summary = await getModelSummary({
+        rows: Number(modelSettings.rows),
+        seed: Number(modelSettings.seed),
+        scenario: String(modelSettings.scenario),
+        policy: modelPolicy
+      });
+      setModelSummary(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
   }
 
   function selectUnstructured(record: UnstructuredRecord) {
@@ -370,7 +492,7 @@ function App() {
       await refreshUnstructured(result.record);
       if (result.application) {
         await refreshQueues(result.application);
-        setSection('triage');
+        navigateToSection('triage');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -498,7 +620,7 @@ function App() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.id} className={`nav-item ${section === item.id ? 'active' : ''}`} onClick={() => setSection(item.id)} title={item.label} aria-label={item.label}>
+              <button key={item.id} className={`nav-item ${section === item.id ? 'active' : ''}`} onClick={() => navigateToSection(item.id)} title={item.label} aria-label={item.label}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </button>
@@ -524,7 +646,7 @@ function App() {
             </div>
           </div>
           <div className="topbar-actions">
-            {section !== 'unstructured' && currentCase && <span className={`status-pill ${decisionClass(currentCase.status)}`}>{statusLabel(currentCase.status)}</span>}
+            {section !== 'flow' && section !== 'unstructured' && section !== 'model' && currentCase && <span className={`status-pill ${decisionClass(currentCase.status)}`}>{statusLabel(currentCase.status)}</span>}
             <button className="icon-button" onClick={() => void bootstrap()} disabled={busy !== null} title="Refresh">
               {busy === 'refresh' ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
             </button>
@@ -533,7 +655,7 @@ function App() {
 
         {error && <div className="error-banner"><XCircle size={18} /> {error}</div>}
 
-        {section !== 'unstructured' && (
+        {section !== 'flow' && section !== 'unstructured' && section !== 'model' && (
           <section className="case-strip">
             {visibleCases.map((item) => (
               <button key={item.id} className={`case-chip ${currentCase?.id === item.id ? 'selected' : ''}`} onClick={() => setCurrentCase(item)}>
@@ -542,6 +664,10 @@ function App() {
               </button>
             ))}
           </section>
+        )}
+
+        {section === 'flow' && (
+          <ProcessFlowView onNavigate={navigateToSection} />
         )}
 
         {section === 'unstructured' && (
@@ -686,7 +812,12 @@ function App() {
                     {selectedQuote && <a className="secondary-link" href={quotePdfUrl(selectedQuote.id)} target="_blank" rel="noreferrer"><Download size={16} /> PDF</a>}
                     <button onClick={() => void bindCurrentQuote()} disabled={!selectedQuote || currentCase.status === 'bound' || busy !== null}>{busy === 'bind' ? <Loader2 className="spin" size={16} /> : <LockKeyhole size={16} />} Bind</button>
                   </div>
-                  {selectedQuote && <QuoteDetails item={currentCase} />}
+                  {selectedQuote && (
+                    <>
+                      <QuoteDetails item={currentCase} />
+                      <QuotePreview quoteId={selectedQuote.id} quoteNumber={selectedQuote.quote_number} />
+                    </>
+                  )}
                 </>
               ) : <EmptyState label="No application selected" />}
             </Panel>
@@ -694,6 +825,22 @@ function App() {
               <AuditTrail item={currentCase} />
             </Panel>
           </div>
+        )}
+
+        {section === 'model' && (
+          <ModelView
+            summary={modelSummary}
+            settings={modelSettings}
+            policy={modelPolicy}
+            activeTab={modelTab}
+            config={config}
+            busy={busy}
+            onSettingsChange={updateModelSettings}
+            onPolicyChange={updateModelPolicy}
+            onLobChange={changeModelLob}
+            onTabChange={setModelTab}
+            onRun={() => void runModelSummary()}
+          />
         )}
 
         {section === 'config' && (
@@ -709,6 +856,430 @@ function App() {
       </main>
     </div>
   );
+}
+
+function ProcessFlowView({ onNavigate }: { onNavigate: (section: Section) => void }) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [hotspotLayerStyle, setHotspotLayerStyle] = useState(defaultHotspotLayerStyle);
+
+  function syncHotspotLayer() {
+    const frame = frameRef.current;
+    const stage = frame?.parentElement;
+    const graph = frame?.contentDocument?.querySelector('.mxgraph') as HTMLElement | null;
+    if (!frame || !stage || !graph) return;
+    const stageRect = stage.getBoundingClientRect();
+    const graphRect = graph.getBoundingClientRect();
+    if (!stageRect.width || !stageRect.height || !graphRect.width || !graphRect.height) return;
+    setHotspotLayerStyle({
+      left: (graphRect.left / stageRect.width * 100) + '%',
+      top: (graphRect.top / stageRect.height * 100) + '%',
+      width: (graphRect.width / stageRect.width * 100) + '%',
+      height: (graphRect.height / stageRect.height * 100) + '%'
+    });
+  }
+
+  function scheduleHotspotSync() {
+    window.setTimeout(syncHotspotLayer, 0);
+    window.setTimeout(syncHotspotLayer, 250);
+  }
+
+  useEffect(() => {
+    scheduleHotspotSync();
+    window.addEventListener('resize', scheduleHotspotSync);
+    return () => window.removeEventListener('resize', scheduleHotspotSync);
+  }, []);
+
+  return (
+    <div className="flow-page">
+      <section className="flow-hero">
+        <div>
+          <div className="eyebrow">Demo control map</div>
+          <h2>Insurance underwriting and quotation automation</h2>
+          <p>The demo flow keeps the original Draw.io diagram intact. Click the active regions to jump into the matching workbench screen.</p>
+        </div>
+        <div className="flow-legend" aria-label="Flow legend">
+          <span><i className="legend-clickable" /> Clickable app region</span>
+          <span><i className="legend-background" /> Background process</span>
+        </div>
+      </section>
+
+      <section className="flow-image-shell">
+        <div className="flow-image-scroller" aria-label="Underwriting flow diagram">
+          <div className="flow-diagram-stage">
+            <iframe
+              ref={frameRef}
+              className="flow-diagram-frame"
+              src="/process-flow.html"
+              title="Insurance underwriting and quotation automation process flow"
+              onLoad={scheduleHotspotSync}
+            />
+            <div className="flow-hotspot-layer" style={hotspotLayerStyle}>
+              {processFlowHotspots.map((hotspot) => (
+                <FlowHotspotButton key={hotspot.label} hotspot={hotspot} onNavigate={onNavigate} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function FlowHotspotButton({ hotspot, onNavigate }: { hotspot: FlowHotspot; onNavigate: (section: Section) => void }) {
+  const style = { left: hotspot.x + '%', top: hotspot.y + '%', width: hotspot.w + '%', height: hotspot.h + '%' };
+  if (!hotspot.target) {
+    return <div className="flow-hotspot background" style={style} aria-label={hotspot.label + ': background process'} title={hotspot.label + ' runs as a background process'} />;
+  }
+  const targetLabel = flowTargetLabel(hotspot.target);
+  return (
+    <button
+      type="button"
+      className="flow-hotspot"
+      style={style}
+      onClick={() => onNavigate(hotspot.target!)}
+      aria-label={'Open ' + targetLabel + ': ' + hotspot.label}
+      title={'Open ' + targetLabel + ': ' + hotspot.label}
+    >
+      <span>{'Open ' + targetLabel + ': ' + hotspot.label}</span>
+    </button>
+  );
+}
+
+function flowTargetLabel(target?: Section): string {
+  if (!target) return 'screen';
+  return navItems.find((item) => item.id === target)?.label ?? 'Open screen';
+}
+
+function ModelView({
+  summary,
+  settings,
+  policy,
+  activeTab,
+  config,
+  busy,
+  onSettingsChange,
+  onPolicyChange,
+  onLobChange,
+  onTabChange,
+  onRun
+}: {
+  summary: ModelSummary | null;
+  settings: { rows: number; seed: number; scenario: string };
+  policy: PolicyPayload;
+  activeTab: ModelTab;
+  config: ConfigPayload | null;
+  busy: BusyAction;
+  onSettingsChange: (key: 'rows' | 'seed' | 'scenario', value: string | number) => void;
+  onPolicyChange: (key: string, value: string | number) => void;
+  onLobChange: (lob: string) => void;
+  onTabChange: (tab: ModelTab) => void;
+  onRun: () => void;
+}) {
+  const feedNames = Object.keys(summary?.data.table_previews ?? {});
+  const [selectedFeed, setSelectedFeed] = useState('policies');
+  const activeFeed = feedNames.includes(selectedFeed) ? selectedFeed : feedNames[0] ?? 'policies';
+  const capitalDetailNames = Object.keys(summary?.capital.details ?? {});
+  const [selectedCapitalDetail, setSelectedCapitalDetail] = useState('premium_risk');
+  const activeCapitalDetail = capitalDetailNames.includes(selectedCapitalDetail) ? selectedCapitalDetail : capitalDetailNames[0] ?? 'premium_risk';
+  const scenarioNames = Object.keys(config?.scenarios ?? { Base: {} });
+
+  return (
+    <div className="model-page">
+      <div className="layout-grid model-control-grid">
+        <Panel title="Model Run" icon={SlidersHorizontal}>
+          <div className="form-grid three">
+            <Field label="Data rows"><NumberInput value={settings.rows} onChange={(value) => onSettingsChange('rows', value)} /></Field>
+            <Field label="Random seed"><NumberInput value={settings.seed} onChange={(value) => onSettingsChange('seed', value)} /></Field>
+            <Field label="Scenario">
+              <select value={settings.scenario} onChange={(event) => onSettingsChange('scenario', event.target.value)}>
+                {scenarioNames.map((scenario) => <option key={scenario}>{scenario}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="button-row">
+            <button className="primary-button" onClick={onRun} disabled={busy !== null}>
+              {busy === 'model' ? <Loader2 className="spin" size={17} /> : <RefreshCw size={17} />} Recalculate Model
+            </button>
+            {summary && <span className="model-run-note">{summary.run.scenario_description}</span>}
+          </div>
+        </Panel>
+
+        <Panel title="Policy Input" icon={Layers}>
+          <div className="form-grid three">
+            <Field label="LOB">
+              <select value={policy.lob} onChange={(event) => onLobChange(event.target.value)}>
+                {(config?.lobs ?? lobs).map((lob) => <option key={lob}>{lob}</option>)}
+              </select>
+            </Field>
+            <Field label="Region">
+              <select value={policy.region} onChange={(event) => onPolicyChange('region', event.target.value)}>
+                {(config ? Object.keys(config.regions) : regions).map((region) => <option key={region}>{region}</option>)}
+              </select>
+            </Field>
+            <Field label="Reinsurer rating">
+              <select value={policy.counterparty_rating} onChange={(event) => onPolicyChange('counterparty_rating', event.target.value)}>
+                {(config?.counterparty_ratings ?? ratings).map((rating) => <option key={rating}>{rating}</option>)}
+              </select>
+            </Field>
+            <Field label="Exposure value"><NumberInput value={policy.exposure_value_sar} onChange={(value) => onPolicyChange('exposure_value_sar', value)} /></Field>
+            <Field label="Coverage limit"><NumberInput value={policy.limit_sar} onChange={(value) => onPolicyChange('limit_sar', value)} /></Field>
+            <Field label="Deductible"><NumberInput value={policy.deductible_sar} onChange={(value) => onPolicyChange('deductible_sar', value)} /></Field>
+            <Field label="Term months"><NumberInput value={policy.term_months} onChange={(value) => onPolicyChange('term_months', value)} /></Field>
+            <Field label="Prior claims"><NumberInput value={policy.prior_claims_3y} onChange={(value) => onPolicyChange('prior_claims_3y', value)} /></Field>
+            <Field label="Risk controls"><NumberInput value={policy.risk_control_score} onChange={(value) => onPolicyChange('risk_control_score', value)} /></Field>
+            <Field label="Reinsurance ceded"><NumberInput value={policy.reinsurance_ceded_pct} step={0.01} onChange={(value) => onPolicyChange('reinsurance_ceded_pct', value)} /></Field>
+            <Field label="Event accumulation"><NumberInput value={policy.event_accumulation_score} step={0.01} onChange={(value) => onPolicyChange('event_accumulation_score', value)} /></Field>
+          </div>
+          <LobSpecificFields policy={policy} updatePolicy={onPolicyChange} />
+        </Panel>
+      </div>
+
+      <div className="model-tab-strip">
+        {modelTabs.map((tab) => (
+          <button key={tab.id} className={`model-tab ${activeTab === tab.id ? 'active' : ''}`} onClick={() => onTabChange(tab.id)}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {!summary ? (
+        <Panel title="Model Output" icon={BarChart3}>
+          <EmptyState label={busy === 'model' ? 'Training and calculating model output' : 'Run the model to load this view'} />
+        </Panel>
+      ) : (
+        <>
+          {activeTab === 'underwriting' && (
+            <div className="layout-grid two-col">
+              <Panel title="Underwriting Decision" icon={Gauge}>
+                <MetricRow values={[
+                  ['Decision', statusLabel(summary.underwriting.decision === 'refer' ? 'requires_review' : summary.underwriting.decision)],
+                  ['Offered premium', formatSar(summary.underwriting.recommended_premium_sar)],
+                  ['Risk score', `${summary.underwriting.risk_score.toFixed(1)}/100`],
+                  ['Expected loss', formatSar(summary.underwriting.expected_loss_sar)]
+                ]} />
+                <TextList title="Decision reasons" items={summary.underwriting.decision_reasons} />
+                <TextList title="Detailed explanation" items={summary.underwriting.decision_explanation.drivers} />
+                <TextList title="What can make it acceptable" items={summary.underwriting.decision_explanation.recommended_actions} />
+              </Panel>
+              <Panel title="Premium & Capital" icon={BarChart3}>
+                <MiniBarChart rows={summary.underwriting.premium_breakdown.filter((row) => row.Component !== 'Technical premium')} labelKey="Component" valueKey="Amount SAR" valueFormatter={formatSar} />
+                <DataTable rows={summary.underwriting.premium_breakdown} />
+                <div className="model-section-gap" />
+                <MiniBarChart rows={summary.underwriting.rbc_modules} labelKey="module" valueKey="capital_sar" valueFormatter={formatSar} />
+                <MetricRow values={[
+                  ['SCR impact', formatSar(summary.underwriting.scr_impact_sar)],
+                  ['SCR / premium', summary.underwriting.scr_to_premium.toFixed(2)],
+                  ['Claim probability', formatPercent(summary.underwriting.claim_probability)],
+                  ['RBC benefit', formatSar(summary.underwriting.rbc_diversification_benefit_sar)]
+                ]} />
+                <DataTable rows={summary.underwriting.pricing_reconciliation} />
+                <p className="model-footnote">{summary.underwriting.model_basis} {summary.underwriting.proxy_basis}</p>
+              </Panel>
+              <Panel title="Rule Checks" icon={ShieldAlert}>
+                <DataTable rows={summary.underwriting.decision_explanation.rule_evaluations} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'data' && (
+            <div className="layout-grid two-col">
+              <Panel title="Portfolio Data" icon={Database}>
+                <MetricRow values={[
+                  ['Policies', summary.data.metrics.policies.toLocaleString()],
+                  ['Claim rate', formatPercent(summary.data.metrics.claim_rate)],
+                  ['Mean premium', formatSar(summary.data.metrics.mean_technical_premium_sar)],
+                  ['Mean expected loss', formatSar(summary.data.metrics.mean_expected_loss_sar)]
+                ]} />
+                <MiniBarChart rows={summary.data.lob_counts} labelKey="LOB" valueKey="Policies" />
+                <DataTable rows={summary.data.loss_ratio_by_lob} />
+              </Panel>
+              <Panel title="Data Feeds" icon={FileText}>
+                <div className="form-grid two compact-fields">
+                  <Field label="Feed">
+                    <select value={activeFeed} onChange={(event) => setSelectedFeed(event.target.value)}>
+                      {feedNames.map((name) => <option key={name}>{name}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <DataTable rows={summary.data.metadata_coverage} />
+                <div className="model-section-gap" />
+                <DataTable rows={summary.data.table_previews[activeFeed] ?? []} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'actuarial' && (
+            <div className="layout-grid two-col">
+              <Panel title="GLM Baseline" icon={LineChart}>
+                <p className="model-footnote">{summary.actuarial.basis}</p>
+                <DataTable rows={summary.actuarial.diagnostics} />
+              </Panel>
+              <Panel title="Indications" icon={BarChart3}>
+                <MiniBarChart rows={summary.actuarial.indication_summary} labelKey="lob" valueKey="avg_expected_loss_sar" valueFormatter={formatSar} />
+                <DataTable rows={summary.actuarial.indication_summary} />
+              </Panel>
+              <Panel title="Sample GLM Output" icon={Database}>
+                <DataTable rows={summary.actuarial.sample_indications} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'diagnostics' && (
+            <div className="layout-grid two-col">
+              <Panel title="Predictive ML Diagnostics" icon={Gauge}>
+                <DataTable rows={summary.diagnostics.model_diagnostics} />
+              </Panel>
+              <Panel title="SHAP Explanation" icon={Sparkles}>
+                <p className="model-footnote">{summary.diagnostics.shap_error ? `${summary.diagnostics.shap_method}: ${summary.diagnostics.shap_error}` : summary.diagnostics.shap_method}</p>
+                <MiniBarChart rows={summary.diagnostics.shap_features} labelKey="feature" valueKey="absolute_contribution" />
+                <DataTable rows={summary.diagnostics.shap_features} />
+              </Panel>
+              <Panel title="Frequency Importance" icon={BarChart3}>
+                <DataTable rows={summary.diagnostics.frequency_importance} />
+              </Panel>
+              <Panel title="Severity Importance" icon={BarChart3}>
+                <DataTable rows={summary.diagnostics.severity_importance} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'reserving' && (
+            <div className="layout-grid two-col">
+              <Panel title="Reserve Summary" icon={BookOpen}>
+                <p className="model-footnote">{summary.reserving.basis}</p>
+                <DataTable rows={summary.reserving.reserve_summary} />
+              </Panel>
+              <Panel title="Link Ratios" icon={LineChart}>
+                <DataTable rows={summary.reserving.link_ratios} />
+              </Panel>
+              <Panel title="Paid Triangle" icon={Database}>
+                <DataTable rows={summary.reserving.paid_triangle} />
+              </Panel>
+              <Panel title="Incurred Triangle" icon={Database}>
+                <DataTable rows={summary.reserving.incurred_triangle} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'capital' && (
+            <div className="layout-grid two-col">
+              <Panel title="Expanded SCR" icon={ShieldAlert}>
+                <MetricRow values={[
+                  ['Standalone capital', formatSar(summary.capital.standalone_sum_sar)],
+                  ['Diversified SCR', formatSar(summary.capital.diversified_scr_sar)],
+                  ['Diversification benefit', formatSar(summary.capital.diversification_benefit_sar)],
+                  ['Legacy sample SCR', formatSar(summary.capital.legacy_diversified_scr_sar)]
+                ]} />
+                <MiniBarChart rows={summary.capital.module_table} labelKey="module_label" valueKey="capital_sar" valueFormatter={formatSar} />
+                <DataTable rows={summary.capital.module_table} />
+              </Panel>
+              <Panel title="Capital Detail" icon={Database}>
+                <div className="form-grid two compact-fields">
+                  <Field label="Detail">
+                    <select value={activeCapitalDetail} onChange={(event) => setSelectedCapitalDetail(event.target.value)}>
+                      {capitalDetailNames.map((name) => <option key={name}>{name.replaceAll('_', ' ')}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <DataTable rows={summary.capital.details[activeCapitalDetail] ?? []} />
+              </Panel>
+              <Panel title="Expanded Module Correlations" icon={LineChart}>
+                <DataTable rows={summary.capital.correlation_matrix} />
+              </Panel>
+              <Panel title="Legacy Three-Module Sample" icon={BarChart3}>
+                <DataTable rows={summary.capital.legacy_lob_capital} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'scenarios' && (
+            <Panel title="Scenario Comparison" icon={LineChart}>
+              <MiniBarChart rows={summary.scenarios.comparison} labelKey="scenario" valueKey="diversified_scr_sar" valueFormatter={formatSar} />
+              <DataTable rows={summary.scenarios.comparison} />
+            </Panel>
+          )}
+
+          {activeTab === 'rules' && (
+            <div className="layout-grid two-col">
+              <Panel title="Business Rules" icon={ShieldAlert}>
+                <DataTable rows={summary.rules.business_rules} />
+              </Panel>
+              <Panel title="Decision Thresholds" icon={Gauge}>
+                <DataTable rows={summary.rules.thresholds} />
+              </Panel>
+              <Panel title="LOB Appetite Limits" icon={Database}>
+                <DataTable rows={summary.rules.appetite} />
+              </Panel>
+            </div>
+          )}
+
+          {activeTab === 'proxy' && (
+            <div className="layout-grid two-col">
+              <Panel title="LOB Factors" icon={SlidersHorizontal}>
+                <DataTable rows={summary.proxy_factors.lob_factors} />
+              </Panel>
+              <Panel title="Three-Module Correlations" icon={LineChart}>
+                <DataTable rows={summary.proxy_factors.three_module_correlations} />
+              </Panel>
+              <Panel title="Expanded SCR Correlations" icon={LineChart}>
+                <DataTable rows={summary.proxy_factors.expanded_correlations} />
+              </Panel>
+              <Panel title="Scenario Assumptions" icon={Database}>
+                <DataTable rows={summary.proxy_factors.scenario_assumptions} />
+              </Panel>
+              <Panel title="Generated RBC Factor Feed" icon={FileText}>
+                <DataTable rows={summary.proxy_factors.rbc_factors} />
+                <p className="model-footnote">{summary.run.data_notice}</p>
+              </Panel>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TextList({ title, items }: { title: string; items: string[] }) {
+  return <div className="model-text-list"><h3>{title}</h3>{items.map((item) => <p key={item}>{item}</p>)}</div>;
+}
+
+function MiniBarChart({ rows, labelKey, valueKey, valueFormatter }: { rows: ModelTableRow[]; labelKey: string; valueKey: string; valueFormatter?: (value: number) => string }) {
+  if (!rows.length) return <EmptyState label="No chart data" />;
+  const values = rows.map((row) => Math.abs(Number(row[valueKey] ?? 0))).filter((value) => Number.isFinite(value));
+  const max = Math.max(...values, 1);
+  return (
+    <div className="mini-bar-chart">
+      {rows.slice(0, 12).map((row, index) => {
+        const value = Number(row[valueKey] ?? 0);
+        const width = `${Math.max(2, Math.abs(value) / max * 100)}%`;
+        return (
+          <div className="mini-bar-row" key={`${String(row[labelKey])}-${index}`}>
+            <span>{String(row[labelKey] ?? '-')}</span>
+            <div><i style={{ width }} /></div>
+            <strong>{valueFormatter ? valueFormatter(value) : formatCellValue(value)}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return '-';
+    if (Math.abs(value) >= 100000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+    if (Math.abs(value) > 0 && Math.abs(value) < 1) return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  return String(value);
 }
 
 function UnstructuredIntakeView({
@@ -930,7 +1501,23 @@ function LobSpecificFields({ policy, updatePolicy }: { policy: PolicyPayload; up
 
 function EnrichmentList({ item }: { item: UnderwritingCase | null }) {
   if (!item?.enrichments.length) return <EmptyState label="No enrichment results" />;
-  return <div className="timeline">{item.enrichments.map((result) => <div className="timeline-card" key={result.provider}><div><strong>{result.provider.replaceAll('_', ' ')}</strong><span>{Math.round(result.confidence * 100)}% confidence</span></div><div className="flag-row">{result.flags.length ? result.flags.map((flag) => <span key={flag.code} className={`flag ${flag.severity}`}>{flag.label}</span>) : <span className="flag low">Clear</span>}</div></div>)}</div>;
+  return (
+    <div className="timeline">
+      {item.enrichments.map((result) => (
+        <div className="timeline-card enrichment-card" key={result.provider}>
+          <div className="enrichment-heading">
+            <strong>{result.provider.replaceAll('_', ' ')}</strong>
+            <span className="enrichment-confidence">{Math.round(result.confidence * 100)}% confidence</span>
+          </div>
+          <div className="flag-row">
+            {result.flags.length
+              ? result.flags.map((flag) => <span key={flag.code} className={'flag ' + flag.severity}>{flag.label}</span>)
+              : <span className="flag low">Clear</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function DecisionSummary({ item }: { item: UnderwritingCase }) {
@@ -949,6 +1536,21 @@ function QuoteDetails({ item }: { item: UnderwritingCase }) {
   return <div className="quote-box"><h3>{quote.quote_number}</h3><MetricRow values={[["Premium", formatSar(quote.premium_sar)], ["Expires", quote.expires_at], ["Deductible", formatSar(quote.deductible_sar)], ["Policy", item.bound_policies.at(-1)?.policy_number ?? '-']]} /></div>;
 }
 
+function QuotePreview({ quoteId, quoteNumber }: { quoteId: string; quoteNumber: string }) {
+  return (
+    <div className="quote-preview">
+      <div className="quote-preview-header">
+        <div>
+          <h3>Quote preview</h3>
+          <span>{quoteNumber}</span>
+        </div>
+        <a className="secondary-link" href={quotePdfUrl(quoteId)} target="_blank" rel="noreferrer"><Download size={16} /> Open PDF</a>
+      </div>
+      <iframe title={'Quote preview ' + quoteNumber} src={quotePdfUrl(quoteId)} />
+    </div>
+  );
+}
+
 function AuditTrail({ item }: { item: UnderwritingCase | null }) {
   if (!item?.audit_events.length) return <EmptyState label="No audit events" />;
   return <div className="audit-list">{item.audit_events.slice().reverse().map((event) => <div className="audit-row" key={event.id}><span>{event.event_type}</span><strong>{event.actor}</strong><em>{new Date(event.created_at).toLocaleString()}</em></div>)}</div>;
@@ -961,7 +1563,7 @@ function MetricRow({ values }: { values: Array<[string, string]> }) {
 function DataTable({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (!rows.length) return <EmptyState label="No records" />;
   const columns = Object.keys(rows[0]);
-  return <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column) => <td key={column}>{String(row[column])}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{columns.map((column) => <td key={column}>{formatCellValue(row[column])}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function EmptyState({ label }: { label: string }) {

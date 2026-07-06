@@ -17,6 +17,10 @@ python3 -m venv .venv
 cd frontend && npm install
 ```
 
+## AWS Remote Server Install
+
+See [AWS_INSTALLATION.md](AWS_INSTALLATION.md) for EC2 installation instructions using Nginx, systemd, the FastAPI backend, and the built React frontend.
+
 ## Run the Underwriting Workbench
 
 Start the backend and React frontend together:

@@ -205,3 +205,100 @@ export interface ConfigPayload {
   roles: Role[];
   channels: Channel[];
 }
+
+
+export type ModelTableRow = Record<string, string | number | boolean | null>;
+
+export interface ModelSummaryRequest {
+  rows: number;
+  seed: number;
+  scenario: string;
+  policy: PolicyPayload;
+}
+
+export interface ModelSummary {
+  run: {
+    rows: number;
+    seed: number;
+    scenario: string;
+    scenario_description: string;
+    data_notice: string;
+  };
+  underwriting: {
+    decision: string;
+    recommended_premium_sar: number | null;
+    technical_premium_sar: number;
+    risk_score: number;
+    expected_loss_sar: number;
+    scr_impact_sar: number;
+    scr_to_premium: number;
+    claim_probability: number;
+    conditional_severity_sar: number;
+    model_basis: string;
+    proxy_basis: string;
+    premium_breakdown: ModelTableRow[];
+    pricing_reconciliation: ModelTableRow[];
+    rbc_modules: ModelTableRow[];
+    rbc_diversification_benefit_sar: number;
+    decision_reasons: string[];
+    decision_explanation: {
+      summary: string;
+      drivers: string[];
+      rule_evaluations: ModelTableRow[];
+      recommended_actions: string[];
+    };
+  };
+  data: {
+    metrics: Record<string, number>;
+    metadata_coverage: ModelTableRow[];
+    lob_counts: ModelTableRow[];
+    loss_ratio_by_lob: ModelTableRow[];
+    table_previews: Record<string, ModelTableRow[]>;
+  };
+  actuarial: {
+    basis: string;
+    diagnostics: ModelTableRow[];
+    indication_summary: ModelTableRow[];
+    sample_indications: ModelTableRow[];
+  };
+  diagnostics: {
+    model_diagnostics: ModelTableRow[];
+    frequency_importance: ModelTableRow[];
+    severity_importance: ModelTableRow[];
+    shap_method: string;
+    shap_error: string | null;
+    shap_features: ModelTableRow[];
+  };
+  reserving: {
+    basis: string;
+    reserve_summary: ModelTableRow[];
+    paid_triangle: ModelTableRow[];
+    incurred_triangle: ModelTableRow[];
+    link_ratios: ModelTableRow[];
+  };
+  capital: {
+    standalone_sum_sar: number;
+    diversified_scr_sar: number;
+    diversification_benefit_sar: number;
+    module_table: ModelTableRow[];
+    details: Record<string, ModelTableRow[]>;
+    correlation_matrix: ModelTableRow[];
+    legacy_lob_capital: ModelTableRow[];
+    legacy_diversified_scr_sar: number;
+  };
+  scenarios: {
+    comparison: ModelTableRow[];
+  };
+  rules: {
+    business_rules: ModelTableRow[];
+    thresholds: ModelTableRow[];
+    appetite: ModelTableRow[];
+  };
+  proxy_factors: {
+    lob_factors: ModelTableRow[];
+    three_module_correlations: ModelTableRow[];
+    expanded_correlations: ModelTableRow[];
+    scenario_assumptions: ModelTableRow[];
+    rbc_factors: ModelTableRow[];
+  };
+}

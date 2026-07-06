@@ -1,4 +1,4 @@
-import type { ApplicationCreate, ConfigPayload, UnderwritingCase, UnstructuredRecord, UnstructuredReviewResponse } from './wire';
+import type { ApplicationCreate, ConfigPayload, ModelSummary, ModelSummaryRequest, UnderwritingCase, UnstructuredRecord, UnstructuredReviewResponse } from './wire';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -29,6 +29,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export async function getConfig(): Promise<ConfigPayload> {
   return request<ConfigPayload>('/api/config');
+}
+
+export async function getModelSummary(payload: ModelSummaryRequest): Promise<ModelSummary> {
+  return request<ModelSummary>('/api/model/summary', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export async function createApplication(payload: ApplicationCreate): Promise<UnderwritingCase> {

@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from insurance_model.config import COUNTERPARTY_RATING_FACTORS, DECISION_THRESHOLDS, LOB_CONFIG, LOBS, REGION_RISK
 from insurance_model.simulation import SCENARIOS
@@ -21,6 +22,7 @@ from underwriting_system.schemas import (
     ReviewDecisionRequest,
     UnstructuredReviewRequest,
 )
+from underwriting_system.model_api import build_model_summary
 from underwriting_system.workflow import UnderwritingWorkflow
 
 app = FastAPI(title="Chubb Arabia Underwriting API", version="1.0.0")
@@ -66,6 +68,14 @@ def config() -> dict[str, Any]:
             "channels": ["manual", "api"],
         }
     )
+
+
+@app.post("/api/model/summary")
+def model_summary(request: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return _ok(build_model_summary(request))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
 
 
 @app.post("/api/unstructured-intake/uploads")
@@ -216,7 +226,12 @@ def download_quote_pdf(quote_id: str) -> FileResponse:
                     path = Path(quote["pdf_path"])
                     if not path.exists():
                         raise KeyError(quote_id)
-                    return FileResponse(path, media_type="application/pdf", filename=path.name)
+                    return FileResponse(path, media_type="application/pdf", filename=path.name, content_disposition_type="inline")
         raise KeyError(quote_id)
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+
