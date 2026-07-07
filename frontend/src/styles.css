@@ -1890,3 +1890,23 @@ th {
     padding: 12px;
   }
 }
+
+.nav-item.utility {
+  margin-top: 8px;
+  background: rgba(31, 122, 133, 0.16);
+  border-color: rgba(126, 209, 216, 0.34);
+  color: #d7f4f5;
+  box-shadow: inset 3px 0 0 #43b5bd;
+}
+
+.nav-item.utility + .nav-item.utility {
+  margin-top: 0;
+}
+
+.nav-item.utility:hover,
+.nav-item.utility.active {
+  background: linear-gradient(90deg, rgba(38, 151, 161, 0.46), rgba(255,255,255,0.08));
+  border-color: rgba(137, 225, 229, 0.58);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 #89e1e5, 0 8px 18px rgba(0,0,0,0.14);
+}

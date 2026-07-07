@@ -69,15 +69,15 @@ type BusyAction =
   | 'model'
   | null;
 
-const navItems: Array<{ id: Section; label: string; icon: typeof FileText }> = [
+const navItems: Array<{ id: Section; label: string; icon: typeof FileText; kind?: 'utility' }> = [
   { id: 'flow', label: 'Process Flow', icon: Route },
   { id: 'unstructured', label: 'Unstructured Intake', icon: Inbox },
-  { id: 'intake', label: 'Intake', icon: FileText },
-  { id: 'triage', label: 'Triage', icon: SearchCheck },
+  { id: 'intake', label: 'Record Creation', icon: FileText },
+  { id: 'triage', label: 'Enrichment & Underwriting', icon: SearchCheck },
   { id: 'reviews', label: 'Review Queue', icon: UserCheck },
   { id: 'quote', label: 'Quote & Bind', icon: BadgeCheck },
-  { id: 'model', label: 'Model', icon: BarChart3 },
-  { id: 'config', label: 'Config', icon: SlidersHorizontal }
+  { id: 'model', label: 'Model', icon: BarChart3, kind: 'utility' },
+  { id: 'config', label: 'Config', icon: SlidersHorizontal, kind: 'utility' }
 ];
 
 const lobs = ['Motor', 'Property & Fire', 'Engineering & Construction', 'Marine & Cargo', 'Casualty/Liability'];
@@ -620,7 +620,7 @@ function App() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.id} className={`nav-item ${section === item.id ? 'active' : ''}`} onClick={() => navigateToSection(item.id)} title={item.label} aria-label={item.label}>
+              <button key={item.id} className={`nav-item ${item.kind === 'utility' ? 'utility' : ''} ${section === item.id ? 'active' : ''}`} onClick={() => navigateToSection(item.id)} title={item.label} aria-label={item.label}>
                 <Icon size={18} />
                 <span>{item.label}</span>
               </button>
